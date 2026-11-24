@@ -43,6 +43,8 @@ await writeFile(
     shouldAddHelpers: false,
     supportsResponseStreaming: true,
     maxDuration: 30,
+    // Co-locate with the Turso primary (aws-ap-south-1, Mumbai).
+    regions: ["bom1"],
   }),
 );
 
