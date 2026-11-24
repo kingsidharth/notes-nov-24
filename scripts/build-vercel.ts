@@ -60,8 +60,8 @@ await writeFile(
           continue: true,
         },
         { handle: "filesystem" },
-        // API + remote MCP endpoint -> the function (original path is preserved).
-        { src: "^/(api(?:/.*)?|mcp)$", dest: "/api" },
+        // API, remote MCP endpoint and OAuth discovery -> the function (path preserved).
+        { src: "^/(api(?:/.*)?|mcp|\\.well-known/.*)$", dest: "/api" },
         // Everything else is the SPA.
         { src: "^/(.*)$", dest: "/index.html" },
       ],

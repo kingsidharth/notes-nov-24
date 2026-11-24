@@ -35,7 +35,8 @@ app.all("/mcp", (c) => handler(c.req.raw)); // Hono
 
 - **POST** carries JSON-RPC. **GET** and **DELETE** (and any other method) return `405` with `Allow: POST`, since there is no SSE stream or session to manage.
 - **Auth:** when `authToken` is set, requests need `Authorization: Bearer <token>`. The comparison is constant-time and uses WebCrypto. Anything else gets `401` with `WWW-Authenticate: Bearer realm="notes"`. Without `authToken` the endpoint is open, and the handler logs one warning when it is created.
-- **OAuth 2.1 later:** pass `authenticate: (req) => Promise<{ ok: true, authInfo } | { ok: false, response }>` instead of `authToken`. The `authInfo` reaches tool handlers as `extra.authInfo`.
+- **OAuth 2.1:** pass `authenticate: (req) => Promise<{ ok: true, authInfo } | { ok: false, response }>` instead of `authToken`.
+- **Per-user client:** pass `clientFor: (authInfo) => NotesClient` instead of `client`, so each caller's tools run as that user. `apps/server` does both, verifying Clerk OAuth tokens; see `apps/server/src/app.ts`.
 - **CORS:** browser-based clients need CORS on `/mcp`, including `Authorization` and `Mcp-Protocol-Version` in the allowed headers. Add it with your framework's middleware, which also answers the `OPTIONS` preflight.
 
 ## Client config

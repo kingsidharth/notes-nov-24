@@ -5,8 +5,10 @@ import { createClient } from "@libsql/client";
 import { API_PREFIX } from "@notes/shared";
 import { serveStatic } from "hono/bun";
 import { createApp } from "./app";
+import { clerkAuthFromEnv } from "./auth";
 import { dbConfigFromEnv, migrate } from "./db";
 import { createNotesRepo } from "./notes-repo";
+import { createUsersRepo } from "./users-repo";
 
 // Local / self-hosted entry (Bun). Vercel uses ./vercel.ts instead.
 const port = Number(process.env.PORT ?? 4310);
@@ -20,15 +22,17 @@ const db = createClient(dbConfig);
 await migrate(db);
 
 const app = createApp({
-  repo: createNotesRepo(db),
+  notes: createNotesRepo(db),
+  users: createUsersRepo(db),
+  auth: clerkAuthFromEnv(process.env),
   corsOrigin,
-  mcpAuthToken: process.env.MCP_AUTH_TOKEN,
 });
 
 // In production the API also serves the built web app (single process, single port).
 const webDist = resolve(import.meta.dir, "../../web/dist");
 if (process.env.NODE_ENV === "production" && existsSync(webDist)) {
-  const isApi = (path: string) => path === API_PREFIX || path.startsWith(`${API_PREFIX}/`);
+  const isApi = (path: string) =>
+    path === API_PREFIX || path.startsWith(`${API_PREFIX}/`) || path.startsWith("/.well-known/");
   const assets = serveStatic({ root: webDist });
   const spaFallback = serveStatic({ root: webDist, path: "index.html" });
   // Unknown /api/* paths must still get the JSON 404, not index.html.

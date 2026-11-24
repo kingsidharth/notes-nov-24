@@ -14,6 +14,20 @@ const MIGRATIONS = [
      )`,
     `CREATE INDEX IF NOT EXISTS notes_sort_idx ON notes (pinned DESC, updated_at DESC)`,
   ],
+  // 2: accounts. Users are created on their first authenticated request and
+  // every note belongs to one. Pre-auth notes keep user_id NULL (hidden).
+  [
+    `CREATE TABLE IF NOT EXISTS users (
+       id            TEXT PRIMARY KEY,
+       clerk_user_id TEXT NOT NULL UNIQUE,
+       email         TEXT,
+       name          TEXT,
+       created_at    TEXT NOT NULL,
+       updated_at    TEXT NOT NULL
+     )`,
+    `ALTER TABLE notes ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE`,
+    `CREATE INDEX IF NOT EXISTS notes_user_sort_idx ON notes (user_id, pinned DESC, updated_at DESC)`,
+  ],
 ];
 
 /**

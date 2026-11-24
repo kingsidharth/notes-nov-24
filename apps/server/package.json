@@ -10,6 +10,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@clerk/backend": "^3.32.0",
     "@hono/node-server": "^2.1.11",
     "@hono/zod-validator": "^0.9.1",
     "@libsql/client": "^0.18.0",

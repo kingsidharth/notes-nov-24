@@ -11,6 +11,8 @@
     "test": "echo \"@notes/web: no tests yet\""
   },
   "dependencies": {
+    "@clerk/react": "^6.19.5",
+    "@clerk/ui": "^1.44.4",
     "@codemirror/language": "^6.13.1",
     "@codemirror/language-data": "^6.5.2",
     "@lezer/highlight": "^1.2.5",

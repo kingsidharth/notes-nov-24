@@ -14,6 +14,7 @@ A markdown note taker with a single live editing surface: markdown renders as yo
 | Database | libSQL: a local SQLite file in dev, [Turso](https://turso.tech) in production |
 | Web | `apps/web`: React 19, Vite, Tailwind v4, shadcn/ui, TanStack Query, react-router |
 | Editor | Milkdown Crepe (ProseMirror + remark); notes are stored as plain markdown |
+| Auth | [Clerk](https://clerk.com): sessions for the web app, OAuth 2.1 for MCP clients |
 
 ## Getting started
 
@@ -40,12 +41,16 @@ The server reads these environment variables, all optional:
 | `DATABASE_PATH` | `apps/server/data/notes.db` (used when no Turso URL is set) |
 | `TURSO_DATABASE_URL` | unset; `libsql://…` switches to Turso |
 | `TURSO_AUTH_TOKEN` | unset |
-| `MCP_AUTH_TOKEN` | unset, so `/mcp` is open (a warning is logged) |
+| `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` | required; `bunx clerk@latest env pull` writes them to `.env.local` |
+| `VITE_CLERK_PUBLISHABLE_KEY` | required at web build time |
+| `CLERK_AUTHORIZED_PARTIES` | unset; comma-separated origins allowed to send session tokens |
 | `CORS_ORIGIN` | `*` (comma-separated list) |
 
 ## API
 
 All bodies are JSON, and errors are always `{ "error": { "code", "message", "issues?" } }`.
+
+Every route except `/api/health` requires `Authorization: Bearer <Clerk session token>`. A user's local account (`users` table, keyed by Clerk user ID) is created on their first authenticated request. Notes belong to one user; a note ID from another account returns 404. `GET /api/me` returns the account.
 
 | Method | Path | Body / query | Returns |
 | --- | --- | --- | --- |
@@ -71,7 +76,14 @@ The client validates responses against the same zod schemas the server uses. It 
 
 ### MCP
 
-`POST /mcp` is the remote MCP endpoint, mounted in the same server. Clients send `Authorization: Bearer $MCP_AUTH_TOKEN`. `packages/mcp` exposes the notes to AI clients as a remote MCP server: stateless Streamable HTTP with bearer auth and 8 tools. See [packages/mcp/README.md](packages/mcp/README.md).
+`POST /mcp` is the remote MCP endpoint, mounted in the same server. It's an OAuth 2.1 protected resource with Clerk as the authorization server:
+
+1. An unauthenticated call gets `401` with `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"`.
+2. That metadata points clients at Clerk. Clerk supports dynamic client registration and client ID metadata documents, with PKCE S256 required.
+3. The user signs in and consents on Clerk, and the client calls `/mcp` with the access token.
+4. Tools act as that user, the same as the web app.
+
+In MCP clients, just add the URL (`https://notes-nov-24.vercel.app/mcp`); the client handles the OAuth flow. `packages/mcp` exposes the notes to AI clients as a remote MCP server: stateless Streamable HTTP with bearer auth and 8 tools. See [packages/mcp/README.md](packages/mcp/README.md).
 
 ## Deploying to Vercel
 
@@ -84,11 +96,13 @@ The function uses libSQL's HTTP client, so production needs a Turso database. Se
 ```sh
 vercel env add TURSO_DATABASE_URL production   # libsql://<db>-<org>.turso.io
 vercel env add TURSO_AUTH_TOKEN production     # turso db tokens create <db>
-vercel env add MCP_AUTH_TOKEN production       # e.g. openssl rand -hex 32
+vercel env add CLERK_SECRET_KEY production     # from: bunx clerk@latest env pull --print
+vercel env add CLERK_PUBLISHABLE_KEY production
+vercel env add VITE_CLERK_PUBLISHABLE_KEY production
 vercel deploy --prod
 ```
 
-Migrations run on the first request after each cold start. They're idempotent, tracked with `PRAGMA user_version`.
+Migrations run on the first request after each cold start. They're idempotent and tracked in a `_migrations` table, because Turso rejects `PRAGMA user_version` writes.
 
 ## Layout
 
