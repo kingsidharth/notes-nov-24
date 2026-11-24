@@ -65,6 +65,10 @@ const results = await notes.list({ q: "hello" });
 
 The client validates responses against the same zod schemas the server uses. It throws a typed `ApiError` carrying `status`, `code` and `issues`.
 
+### MCP
+
+`packages/mcp` exposes the notes to AI clients as a remote MCP server: stateless Streamable HTTP with bearer auth and 8 tools. See [packages/mcp/README.md](packages/mcp/README.md).
+
 ## Layout
 
 ```
