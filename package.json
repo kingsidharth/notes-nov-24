@@ -1,0 +1,16 @@
+{
+  "name": "notes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --filter '@notes/server' --filter '@notes/web' dev",
+    "build": "bun run --filter '@notes/web' build",
+    "start": "bun run --filter '@notes/server' start",
+    "test": "bun run --filter '*' test",
+    "typecheck": "bun run --filter '*' typecheck"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
