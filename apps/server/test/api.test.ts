@@ -144,8 +144,47 @@ describe("lazyMigrate", () => {
     } as typeof db;
     const ready = lazyMigrate(flaky);
     await expect(ready()).rejects.toThrow("cold DB");
-    await ready();
-    await ready();
-    expect(calls).toBe(2);
+    await ready(); // retried after the failure
+    const afterSuccess = calls;
+    await ready(); // memoized: no further DB work
+    expect(calls).toBe(afterSuccess);
+    expect(afterSuccess).toBeGreaterThan(1);
+  });
+});
+
+describe("migrate on Turso-like databases", () => {
+  it("never writes PRAGMA user_version and is idempotent", async () => {
+    const db = createClient({ url: ":memory:" });
+    const statements: string[] = [];
+    const record = (stmt: unknown) => {
+      const sql = typeof stmt === "string" ? stmt : (stmt as { sql: string }).sql;
+      if (/PRAGMA\s+user_version\s*=/i.test(sql)) throw new Error("SQL not allowed statement");
+      statements.push(sql);
+    };
+    const strict = {
+      ...db,
+      execute: (stmt: Parameters<typeof db.execute>[0]) => (record(stmt), db.execute(stmt)),
+      batch: (stmts: Parameters<typeof db.batch>[0], mode?: Parameters<typeof db.batch>[1]) => (
+        stmts.forEach(record), db.batch(stmts, mode)
+      ),
+    } as typeof db;
+    await migrate(strict);
+    await migrate(strict);
+    const { rows } = await db.execute("SELECT version FROM _migrations");
+    expect(rows.map((r) => Number(r.version))).toEqual([1]);
+  });
+
+  it("answers unauthenticated /mcp with 401 without touching the database", async () => {
+    let readyCalls = 0;
+    const gated = createApp({
+      repo: createNotesRepo(createClient({ url: ":memory:" })),
+      mcpAuthToken: "secret",
+      ready: async () => {
+        readyCalls++;
+      },
+    });
+    const res = await gated.request("/mcp", { method: "POST", body: "{}" });
+    expect(res.status).toBe(401);
+    expect(readyCalls).toBe(0);
   });
 });
