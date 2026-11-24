@@ -1,8 +1,8 @@
-import { createNotesClient, type Note } from "@notes/shared";
+import { createNotesClient, toExcerpt, type Note } from "@notes/shared";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { createApp } from "../src/app";
 import { openDb } from "../src/db";
-import { createNotesRepo, toExcerpt } from "../src/notes-repo";
+import { createNotesRepo } from "../src/notes-repo";
 
 let api: ReturnType<typeof createNotesClient>;
 let app: ReturnType<typeof createApp>;
@@ -83,5 +83,11 @@ describe("toExcerpt", () => {
     expect(
       toExcerpt("# Title\n\n- [x] done item\n> quote with [link](http://x)\n```js\ncode\n```\n`inline` **b**"),
     ).toBe("Title done item quote with link inline b");
+  });
+
+  it("drops html line breaks, table separators, rules and escapes", () => {
+    expect(toExcerpt("milk\n\n<br />\n\n| A | B |\n| --- | :-: |\n| 1 | 2 |\n\n---\n\n100\\% \\*ok\\*")).toBe(
+      "milk A B 1 2 100% ok",
+    );
   });
 });
