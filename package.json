@@ -7,7 +7,8 @@
     "build": "bun run --filter '@notes/web' build",
     "start": "bun run --filter '@notes/server' start",
     "test": "bun run --filter '*' test",
-    "typecheck": "bun run --filter '*' typecheck"
+    "typecheck": "bun run --filter '*' typecheck",
+    "build:vercel": "bun scripts/build-vercel.ts"
   },
   "workspaces": [
     "apps/*",

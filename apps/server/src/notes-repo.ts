@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { toExcerpt, type Note, type NoteSummary } from "@notes/shared";
 import type { Db } from "./db";
 
@@ -26,78 +25,69 @@ function escapeLike(value: string) {
   return value.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+const SUMMARY_COLUMNS = `id, title, substr(content, 1, 2000) AS content, pinned, created_at, updated_at`;
+const ORDER = `ORDER BY pinned DESC, updated_at DESC`;
+
 export function createNotesRepo(db: Db) {
-  const stmts = {
-    list: db.prepare(
-      `SELECT id, title, substr(content, 1, 2000) AS content, pinned, created_at, updated_at
-         FROM notes ORDER BY pinned DESC, updated_at DESC`,
-    ),
-    search: db.prepare(
-      `SELECT id, title, substr(content, 1, 2000) AS content, pinned, created_at, updated_at
-         FROM notes
-        WHERE title LIKE $q ESCAPE '\\' OR content LIKE $q ESCAPE '\\'
-        ORDER BY pinned DESC, updated_at DESC`,
-    ),
-    get: db.prepare(`SELECT * FROM notes WHERE id = ?`),
-    insert: db.prepare(
-      `INSERT INTO notes (id, title, content, pinned, created_at, updated_at)
-       VALUES ($id, $title, $content, $pinned, $now, $now)`,
-    ),
-    update: db.prepare(
-      `UPDATE notes SET
-         title      = COALESCE($title, title),
-         content    = COALESCE($content, content),
-         pinned     = COALESCE($pinned, pinned),
-         updated_at = $now
-       WHERE id = $id`,
-    ),
-    remove: db.prepare(`DELETE FROM notes WHERE id = ?`),
-  };
+  async function get(id: string): Promise<Note | null> {
+    const { rows } = await db.execute({ sql: `SELECT * FROM notes WHERE id = ?`, args: [id] });
+    return rows[0] ? toNote(rows[0] as unknown as NoteRow) : null;
+  }
 
   return {
-    list(q?: string): NoteSummary[] {
-      const rows = (
-        q ? stmts.search.all({ q: `%${escapeLike(q)}%` }) : stmts.list.all()
-      ) as unknown as NoteRow[];
+    get,
+
+    async list(q?: string): Promise<NoteSummary[]> {
+      const { rows } = q
+        ? await db.execute({
+            sql: `SELECT ${SUMMARY_COLUMNS} FROM notes
+                   WHERE title LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\' ${ORDER}`,
+            args: { q: `%${escapeLike(q)}%` },
+          })
+        : await db.execute(`SELECT ${SUMMARY_COLUMNS} FROM notes ${ORDER}`);
       return rows.map((row) => {
-        const { content, ...rest } = toNote(row);
+        const { content, ...rest } = toNote(row as unknown as NoteRow);
         return { ...rest, excerpt: toExcerpt(content) };
       });
     },
 
-    get(id: string): Note | null {
-      const row = stmts.get.get(id) as NoteRow | undefined;
-      return row ? toNote(row) : null;
-    },
-
-    create(input: { title: string; content: string; pinned: boolean }): Note {
-      const id = randomUUID();
-      stmts.insert.run({
-        id,
-        title: input.title,
-        content: input.content,
-        pinned: input.pinned ? 1 : 0,
-        now: new Date().toISOString(),
+    async create(input: { title: string; content: string; pinned: boolean }): Promise<Note> {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      await db.execute({
+        sql: `INSERT INTO notes (id, title, content, pinned, created_at, updated_at)
+              VALUES (:id, :title, :content, :pinned, :now, :now)`,
+        args: { id, title: input.title, content: input.content, pinned: input.pinned ? 1 : 0, now },
       });
-      return this.get(id)!;
+      return (await get(id))!;
     },
 
-    update(
+    async update(
       id: string,
       patch: { title?: string; content?: string; pinned?: boolean },
-    ): Note | null {
-      const result = stmts.update.run({
-        id,
-        title: patch.title ?? null,
-        content: patch.content ?? null,
-        pinned: patch.pinned === undefined ? null : patch.pinned ? 1 : 0,
-        now: new Date().toISOString(),
+    ): Promise<Note | null> {
+      const { rows } = await db.execute({
+        sql: `UPDATE notes SET
+                title      = COALESCE(:title, title),
+                content    = COALESCE(:content, content),
+                pinned     = COALESCE(:pinned, pinned),
+                updated_at = :now
+              WHERE id = :id
+              RETURNING *`,
+        args: {
+          id,
+          title: patch.title ?? null,
+          content: patch.content ?? null,
+          pinned: patch.pinned === undefined ? null : patch.pinned ? 1 : 0,
+          now: new Date().toISOString(),
+        },
       });
-      return result.changes ? this.get(id) : null;
+      return rows[0] ? toNote(rows[0] as unknown as NoteRow) : null;
     },
 
-    remove(id: string): boolean {
-      return stmts.remove.run(id).changes > 0;
+    async remove(id: string): Promise<boolean> {
+      const result = await db.execute({ sql: `DELETE FROM notes WHERE id = ?`, args: [id] });
+      return result.rowsAffected > 0;
     },
   };
 }
