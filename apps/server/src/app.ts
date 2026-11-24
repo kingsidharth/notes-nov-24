@@ -47,7 +47,7 @@ export interface AppOptions {
   corsOrigin?: string | string[];
   /** Bearer secret for the remote MCP endpoint at /mcp. Unset = open (warns). */
   mcpAuthToken?: string;
-  /** Makes the DB ready (e.g. migrations); awaited before each request. Should memoize. */
+  /** Makes the DB ready (e.g. migrations); awaited before each /api request. Should memoize. */
   ready?: () => Promise<unknown>;
 }
 
@@ -78,14 +78,17 @@ export function createApp({ repo, corsOrigin = "*", mcpAuthToken, ready }: AppOp
     });
 
   const app = new Hono();
+
+  app.use(`${API_PREFIX}/*`, cors({ origin: corsOrigin }));
+  app.use(`${API_PREFIX}/*`, bodyLimit({ maxSize: 1024 * 1024 }));
+  // Only the REST routes touch the DB; /mcp authenticates first, then reaches
+  // them in-process, so unauthenticated MCP calls never wait on the database.
   if (ready) {
-    app.use("*", async (_c, next) => {
+    app.use(`${API_PREFIX}/*`, async (_c, next) => {
       await ready();
       await next();
     });
   }
-  app.use(`${API_PREFIX}/*`, cors({ origin: corsOrigin }));
-  app.use(`${API_PREFIX}/*`, bodyLimit({ maxSize: 1024 * 1024 }));
   app.route(API_PREFIX, api);
 
   // Remote MCP server: its tools call this same REST API in-process through the

@@ -17,14 +17,28 @@ const MIGRATIONS = [
 ];
 
 /**
- * Applies pending migrations, tracked in SQLite's `user_version`. Works the same
- * against a local file, `:memory:` and a remote Turso database.
+ * Applies pending migrations, tracked in a `_migrations` table. (Turso rejects
+ * `PRAGMA user_version = N`, so the version can't live there.) Every statement
+ * is idempotent, so concurrent cold starts racing on the same version are safe.
+ * Works the same against a local file, `:memory:` and a remote Turso database.
  */
 export async function migrate(db: Db): Promise<void> {
-  const { rows } = await db.execute("PRAGMA user_version");
-  const version = Number(rows[0]?.[0] ?? 0);
+  await db.execute(
+    `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`,
+  );
+  const { rows } = await db.execute("SELECT COALESCE(MAX(version), 0) AS v FROM _migrations");
+  const version = Number(rows[0]?.v ?? 0);
   for (let i = version; i < MIGRATIONS.length; i++) {
-    await db.batch([...MIGRATIONS[i]!, `PRAGMA user_version = ${i + 1}`], "write");
+    await db.batch(
+      [
+        ...MIGRATIONS[i]!,
+        {
+          sql: "INSERT OR IGNORE INTO _migrations (version, applied_at) VALUES (?, ?)",
+          args: [i + 1, new Date().toISOString()],
+        },
+      ],
+      "write",
+    );
   }
 }
 
