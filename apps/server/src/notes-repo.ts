@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Note, NoteSummary } from "@notes/shared";
+import { toExcerpt, type Note, type NoteSummary } from "@notes/shared";
 import type { Db } from "./db";
 
 interface NoteRow {
@@ -9,22 +9,6 @@ interface NoteRow {
   pinned: number;
   created_at: string;
   updated_at: string;
-}
-
-const EXCERPT_LENGTH = 160;
-
-/** Rough markdown → plain text, good enough for list previews. */
-export function toExcerpt(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
-    .replace(/\[[ xX]\]\s+/g, "")
-    .replace(/[*_~`|]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, EXCERPT_LENGTH);
 }
 
 function toNote(row: NoteRow): Note {
