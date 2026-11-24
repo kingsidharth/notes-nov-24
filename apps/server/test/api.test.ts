@@ -3,20 +3,49 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import { createApp } from "../src/app";
 import { createClient } from "@libsql/client";
 import { lazyMigrate, migrate } from "../src/db";
+import type { AuthProvider } from "../src/auth";
 import { createNotesRepo } from "../src/notes-repo";
+import { createUsersRepo } from "../src/users-repo";
 
-let api: ReturnType<typeof createNotesClient>;
+/**
+ * Fake Clerk: session tokens look like `session:<clerkUserId>`, OAuth access
+ * tokens like `oauth:<clerkUserId>`. Profiles are loaded once per new user.
+ */
+const profileLoads: string[] = [];
+const fakeAuth: AuthProvider = {
+  issuer: "https://clerk.example.test",
+  async verifySession(req) {
+    const m = /^Bearer session:(\S+)$/.exec(req.headers.get("authorization") ?? "");
+    return m?.[1] ?? null;
+  },
+  async verifyOAuth(req) {
+    const m = /^Bearer oauth:(\S+)$/.exec(req.headers.get("authorization") ?? "");
+    return m ? { clerkUserId: m[1]!, clientId: "client_test", scopes: ["profile"] } : null;
+  },
+  async loadProfile(clerkUserId) {
+    profileLoads.push(clerkUserId);
+    return { email: `${clerkUserId}@example.test`, name: clerkUserId.toUpperCase() };
+  },
+};
+
+let db: ReturnType<typeof createClient>;
 let app: ReturnType<typeof createApp>;
+let api: ReturnType<typeof createNotesClient>;
 
-beforeEach(async () => {
-  const db = createClient({ url: ":memory:" });
-  await migrate(db);
-  app = createApp({ repo: createNotesRepo(db), mcpAuthToken: "test-token" });
-  // Exercise the real shared client against the in-process app.
-  api = createNotesClient({
+const clientAs = (clerkUserId: string) =>
+  createNotesClient({
     baseUrl: "http://test",
+    headers: { Authorization: `Bearer session:${clerkUserId}` },
     fetch: (url, init) => Promise.resolve(app.request(url, init)),
   });
+
+beforeEach(async () => {
+  profileLoads.length = 0;
+  db = createClient({ url: ":memory:" });
+  await migrate(db);
+  app = createApp({ notes: createNotesRepo(db), users: createUsersRepo(db), auth: fakeAuth });
+  // Exercise the real shared client against the in-process app, as user "user_a".
+  api = clientAs("user_a");
 });
 
 describe("notes api", () => {
@@ -67,7 +96,7 @@ describe("notes api", () => {
     await expect(api.update(note.id, {})).rejects.toMatchObject({ status: 400 });
     const res = await app.request("/api/notes", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer session:user_a" },
       body: JSON.stringify({ title: 42 }),
     });
     expect(res.status).toBe(400);
@@ -76,7 +105,7 @@ describe("notes api", () => {
 
   it("returns 404 json for unknown notes and routes", async () => {
     await expect(api.remove(crypto.randomUUID())).rejects.toMatchObject({ status: 404 });
-    const res = await app.request("/api/nope");
+    const res = await app.request("/api/nope", { headers: { Authorization: "Bearer session:user_a" } });
     expect(res.status).toBe(404);
   });
 });
@@ -96,7 +125,7 @@ describe("toExcerpt", () => {
 });
 
 describe("mcp endpoint", () => {
-  const rpc = (body: unknown, token = "test-token") =>
+  const rpc = (body: unknown, token = "oauth:user_a") =>
     app.request("/mcp", {
       method: "POST",
       headers: {
@@ -107,10 +136,29 @@ describe("mcp endpoint", () => {
       body: JSON.stringify(body),
     });
 
-  it("rejects requests without the bearer token", async () => {
-    const res = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, "");
-    expect(res.status).toBe(401);
-    expect(res.headers.get("WWW-Authenticate")).toContain("Bearer");
+  it("challenges unauthenticated callers with the protected resource metadata URL", async () => {
+    for (const token of ["", "session:user_a", "oauth-nope"]) {
+      const res = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, token);
+      expect(res.status).toBe(401);
+      expect(res.headers.get("WWW-Authenticate")).toBe(
+        'Bearer resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"',
+      );
+    }
+    const meta = await (await app.request("/.well-known/oauth-protected-resource/mcp")).json();
+    expect(meta).toMatchObject({
+      resource: "http://localhost/mcp",
+      authorization_servers: ["https://clerk.example.test"],
+    });
+  });
+
+  it("acts as the OAuth token's user and never sees other users' notes", async () => {
+    await clientAs("user_b").create({ title: "B's secret" });
+    const call = (name: string, args: Record<string, unknown>) =>
+      rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name, arguments: args } });
+    const listed = (await (await call("list_notes", {})).json()) as {
+      result: { structuredContent: { notes: unknown[] } };
+    };
+    expect(listed.result.structuredContent.notes).toEqual([]);
   });
 
   it("creates a note through MCP that the REST API then serves", async () => {
@@ -171,14 +219,16 @@ describe("migrate on Turso-like databases", () => {
     await migrate(strict);
     await migrate(strict);
     const { rows } = await db.execute("SELECT version FROM _migrations");
-    expect(rows.map((r) => Number(r.version))).toEqual([1]);
+    expect(rows.map((r) => Number(r.version))).toEqual([1, 2]);
   });
 
   it("answers unauthenticated /mcp with 401 without touching the database", async () => {
     let readyCalls = 0;
+    const raw = createClient({ url: ":memory:" });
     const gated = createApp({
-      repo: createNotesRepo(createClient({ url: ":memory:" })),
-      mcpAuthToken: "secret",
+      notes: createNotesRepo(raw),
+      users: createUsersRepo(raw),
+      auth: fakeAuth,
       ready: async () => {
         readyCalls++;
       },
@@ -186,5 +236,42 @@ describe("migrate on Turso-like databases", () => {
     const res = await gated.request("/mcp", { method: "POST", body: "{}" });
     expect(res.status).toBe(401);
     expect(readyCalls).toBe(0);
+  });
+});
+
+describe("accounts", () => {
+  it("requires a session for every /api route except health", async () => {
+    expect((await app.request("/api/health")).status).toBe(200);
+    for (const path of ["/api/me", "/api/notes"]) {
+      const res = await app.request(path);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toMatchObject({ error: { code: "unauthorized" } });
+    }
+    const forged = await app.request("/api/notes", { headers: { Authorization: "Bearer oauth:user_a" } });
+    expect(forged.status).toBe(401);
+  });
+
+  it("creates the local account on the first authenticated request, once", async () => {
+    const first = await app.request("/api/me", { headers: { Authorization: "Bearer session:user_new" } });
+    const me = (await first.json()) as { id: string; clerkUserId: string; email: string; name: string };
+    expect(me).toMatchObject({ clerkUserId: "user_new", email: "user_new@example.test", name: "USER_NEW" });
+    await Promise.all([clientAs("user_new").list(), clientAs("user_new").list()]);
+    const again = (await (
+      await app.request("/api/me", { headers: { Authorization: "Bearer session:user_new" } })
+    ).json()) as { id: string };
+    expect(again.id).toBe(me.id);
+    expect(profileLoads).toEqual(["user_new"]);
+    const { rows } = await db.execute("SELECT count(*) AS n FROM users WHERE clerk_user_id = 'user_new'");
+    expect(Number(rows[0]!.n)).toBe(1);
+  });
+
+  it("keeps each user's notes private", async () => {
+    const mine = await api.create({ title: "A's note" });
+    const b = clientAs("user_b");
+    expect(await b.list()).toEqual([]);
+    await expect(b.get(mine.id)).rejects.toMatchObject({ status: 404 });
+    await expect(b.update(mine.id, { title: "hijack" })).rejects.toMatchObject({ status: 404 });
+    await expect(b.remove(mine.id)).rejects.toMatchObject({ status: 404 });
+    expect((await api.get(mine.id)).title).toBe("A's note");
   });
 });

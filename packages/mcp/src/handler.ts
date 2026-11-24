@@ -1,10 +1,14 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import type { NotesClient } from "@notes/shared";
 import { bearerTokenAuth, type McpAuthenticator } from "./auth";
 import { createNotesMcpServer } from "./server";
 
 export interface McpFetchHandlerOptions {
-  client: NotesClient;
+  /** Notes client for every request; or use `clientFor` to build one per caller. */
+  client?: NotesClient;
+  /** Builds the notes client for an authenticated caller (e.g. scoped to their user). */
+  clientFor?: (authInfo: AuthInfo | undefined) => NotesClient;
   /** Static bearer secret. Undefined = open endpoint (logs a warning once). */
   authToken?: string;
   /** Custom auth (e.g. OAuth 2.1 token validation). Takes precedence over `authToken`. */
@@ -32,7 +36,8 @@ function methodNotAllowed(): Response {
  * fetch-API in/out, so it mounts in Hono, Bun.serve, or a serverless function.
  */
 export function createMcpFetchHandler(options: McpFetchHandlerOptions): McpFetchHandler {
-  const { client } = options;
+  const clientFor = options.clientFor ?? (() => options.client!);
+  if (!options.clientFor && !options.client) throw new Error("createMcpFetchHandler: pass client or clientFor");
   let authenticate = options.authenticate;
   if (!authenticate && options.authToken) authenticate = bearerTokenAuth(options.authToken);
   if (!authenticate) {
@@ -45,7 +50,7 @@ export function createMcpFetchHandler(options: McpFetchHandlerOptions): McpFetch
 
     if (req.method !== "POST") return methodNotAllowed();
 
-    const server = createNotesMcpServer(client);
+    const server = createNotesMcpServer(clientFor(auth.authInfo));
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

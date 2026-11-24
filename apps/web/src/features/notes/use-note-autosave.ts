@@ -4,6 +4,14 @@ import { useUpdateNote } from "./mutations";
 
 export const AUTOSAVE_DELAY_MS = 600;
 
+/** Window event that makes every mounted autosave send its pending edits now. */
+const FLUSH_EVENT = "notes:flush-autosave";
+
+/** Sends pending edits right away, e.g. before the session can end on sign-out. */
+export function flushPendingSaves() {
+  window.dispatchEvent(new Event(FLUSH_EVENT));
+}
+
 type Draft = Partial<Pick<Note, "title" | "content">>;
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -101,11 +109,14 @@ export function useNoteAutosave(note: Note) {
     };
     // The page is going away, so don't queue behind an in-flight save.
     const onBeforeUnload = () => void flush(true);
+    const onFlushRequest = () => void flush();
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener(FLUSH_EVENT, onFlushRequest);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener(FLUSH_EVENT, onFlushRequest);
       void flush();
     };
   }, [flush]);
