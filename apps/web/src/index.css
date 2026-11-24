@@ -2,6 +2,13 @@
 @import "tw-animate-css";
 /* Lets Tailwind see the utility classes Clerk's shadcn theme applies; must follow tailwindcss. */
 @import "@clerk/ui/themes/shadcn.css";
+/* Fira Sans + Fira Mono, self-hosted (bundled woff2). 400/500 are the system
+   defaults; 600 is only for strong emphasis; 400 italic avoids faux italics. */
+@import "@fontsource/fira-sans/400.css";
+@import "@fontsource/fira-sans/400-italic.css";
+@import "@fontsource/fira-sans/500.css";
+@import "@fontsource/fira-sans/600.css";
+@import "@fontsource/fira-mono/400.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -58,11 +65,34 @@
   --sidebar-border: oklch(1 0 0 / 10%);
 }
 
+/* Fira Sans type scale (rem sizes, em line-heights), mobile-first. */
+@theme {
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.4em;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.4em;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5em;
+  --text-md: 1.125rem;
+  --text-md--line-height: 1.35em;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.35em;
+  --text-xl: 1.5rem;
+  --text-xl--line-height: 1.3em;
+  --text-2xl: 2rem;
+  --text-2xl--line-height: 1.2em;
+  --text-3xl: 2.5rem;
+  --text-3xl--line-height: 1.2em;
+  --text-4xl: 2.75rem;
+  --text-4xl--line-height: 1.2em;
+  --tracking-headline: -0.0175em;
+  --tracking-label: 0.042em;
+  --tracking-overline: 0.109em;
+}
+
 @theme inline {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
-    sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-sans: "Fira Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Fira Mono", ui-monospace, monospace;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -104,6 +134,35 @@
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    font-weight: 400;
+    line-height: 1.5em;
+    letter-spacing: 0;
     -webkit-tap-highlight-color: transparent;
+  }
+  @media (min-width: 640px) {
+    body {
+      line-height: 1.55em;
+    }
+  }
+  @media (min-width: 1024px) {
+    body {
+      line-height: 1.6em;
+    }
+  }
+  /* Headings default to medium; strong emphasis uses semibold (no faux 700). */
+  :is(h1, h2, h3, h4, h5, h6) {
+    font-weight: 500;
+  }
+  :is(strong, b) {
+    font-weight: 600;
+  }
+  :is(code, kbd, pre, samp) {
+    font-family: var(--font-mono);
+  }
+  /* Relative times and counts don't jitter as they update. */
+  time {
+    font-variant-numeric: tabular-nums;
   }
 }
