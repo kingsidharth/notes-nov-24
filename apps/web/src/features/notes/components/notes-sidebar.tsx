@@ -27,7 +27,7 @@ export function NotesSidebar({ activeId }: { activeId: string | undefined }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex h-14 shrink-0 items-center gap-1 px-4 md:px-3">
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight">Notes</h1>
+        <h1 className="min-w-0 flex-1 truncate text-lg font-medium">Notes</h1>
         <ThemeToggle />
         <Button size="lg" onClick={create} disabled={isPending} className="px-3">
           {isPending ? <Loader2 className="animate-spin" /> : <Plus />}

@@ -23,7 +23,7 @@ export function NoteTitleInput({ value, onChange, onSubmit, autoFocus }: NoteTit
       placeholder="Untitled"
       aria-label="Note title"
       enterKeyHint="next"
-      className="w-full bg-transparent py-2 text-3xl leading-tight font-semibold tracking-tight outline-none placeholder:text-muted-foreground/50"
+      className="w-full bg-transparent py-2 text-2xl font-medium tracking-headline md:text-4xl outline-none placeholder:text-muted-foreground/50"
     />
   );
 }

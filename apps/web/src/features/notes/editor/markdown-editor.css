@@ -52,34 +52,76 @@
 /* Layout: the page provides gutters and max-width; leave room to scroll past the end. */
 .milkdown .ProseMirror {
   padding: 4px 0 40vh;
-  line-height: 1.6;
+  font-size: 1rem;
   overflow-wrap: anywhere;
 }
 
-/* Typography: calmer heading scale than Crepe's default, in the app's sans font. */
+/* Typography: the Fira Sans scale (mobile first, scales up at md). Body
+   leading is set on text blocks (em resolves per element, not inherited). */
+.milkdown .ProseMirror :is(p, li, blockquote, td, th) {
+  line-height: 1.5em;
+}
+@media (min-width: 640px) {
+  .milkdown .ProseMirror :is(p, li, blockquote, td, th) {
+    line-height: 1.55em;
+  }
+}
+@media (min-width: 1024px) {
+  .milkdown .ProseMirror :is(p, li, blockquote, td, th) {
+    line-height: 1.6em;
+  }
+}
 .milkdown .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .milkdown .ProseMirror h1 {
-  font-size: 1.875em;
-  line-height: 1.25;
-  margin-top: 28px;
+  font-size: 2rem;
+  line-height: 1.2em;
+  letter-spacing: -0.0175em;
+  margin-top: 1em;
 }
 .milkdown .ProseMirror h2 {
-  font-size: 1.5em;
-  line-height: 1.3;
-  margin-top: 24px;
+  font-size: 1.75rem;
+  line-height: 1.2em;
+  margin-top: 1em;
 }
 .milkdown .ProseMirror h3 {
-  font-size: 1.25em;
-  line-height: 1.4;
-  margin-top: 20px;
+  font-size: 1.25rem;
+  line-height: 1.3em;
+  letter-spacing: 0.0035em;
+  margin-top: 1em;
 }
-.milkdown .ProseMirror :is(h4, h5, h6) {
-  font-size: 1.0625em;
-  line-height: 1.5;
-  margin-top: 16px;
+.milkdown .ProseMirror h4 {
+  font-size: 1.125rem;
+  line-height: 1.35em;
+  margin-top: 1em;
+}
+.milkdown .ProseMirror h5 {
+  font-size: 1rem;
+  line-height: 1.4em;
+  margin-top: 1em;
+}
+.milkdown .ProseMirror h6 {
+  font-size: 0.875rem;
+  line-height: 1.4em;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  margin-top: 1em;
+}
+@media (min-width: 768px) {
+  .milkdown .ProseMirror h1 {
+    font-size: 2.75rem;
+  }
+  .milkdown .ProseMirror h2 {
+    font-size: 2.5rem;
+  }
+  .milkdown .ProseMirror h3 {
+    font-size: 1.5rem;
+  }
+}
+.milkdown .ProseMirror :is(strong, b) {
+  font-weight: 600;
 }
 .milkdown .ProseMirror > :first-child {
   margin-top: 0;
@@ -96,6 +138,10 @@
 }
 .milkdown .milkdown-code-block :is(.cm-editor, .cm-gutters) {
   background: transparent;
+}
+/* CodeMirror's base theme hard-codes "monospace" on the scroller. */
+.milkdown .milkdown-code-block .cm-scroller {
+  font-family: var(--font-mono);
 }
 .milkdown .milkdown-code-block .cm-editor {
   font-size: 0.875em;
