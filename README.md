@@ -10,7 +10,8 @@ A markdown note taker with a single live editing surface: markdown renders as yo
 | --- | --- |
 | Runtime / package manager | [Bun](https://bun.sh) workspaces |
 | Shared contract | `packages/shared`: zod schemas → TS types, route map, typed API client |
-| API | `apps/server`: Hono on `Bun.serve`, `bun:sqlite` |
+| API | `apps/server`: Hono; `Bun.serve` locally, a Node function on Vercel |
+| Database | libSQL: a local SQLite file in dev, [Turso](https://turso.tech) in production |
 | Web | `apps/web`: React 19, Vite, Tailwind v4, shadcn/ui, TanStack Query, react-router |
 | Editor | Milkdown Crepe (ProseMirror + remark); notes are stored as plain markdown |
 
@@ -36,7 +37,10 @@ The server reads these environment variables, all optional:
 | --- | --- |
 | `PORT` | `4310` |
 | `HOST` | `0.0.0.0` |
-| `DATABASE_PATH` | `apps/server/data/notes.db` |
+| `DATABASE_PATH` | `apps/server/data/notes.db` (used when no Turso URL is set) |
+| `TURSO_DATABASE_URL` | unset; `libsql://…` switches to Turso |
+| `TURSO_AUTH_TOKEN` | unset |
+| `MCP_AUTH_TOKEN` | unset, so `/mcp` is open (a warning is logged) |
 | `CORS_ORIGIN` | `*` (comma-separated list) |
 
 ## API
@@ -67,7 +71,24 @@ The client validates responses against the same zod schemas the server uses. It 
 
 ### MCP
 
-`packages/mcp` exposes the notes to AI clients as a remote MCP server: stateless Streamable HTTP with bearer auth and 8 tools. See [packages/mcp/README.md](packages/mcp/README.md).
+`POST /mcp` is the remote MCP endpoint, mounted in the same server. Clients send `Authorization: Bearer $MCP_AUTH_TOKEN`. `packages/mcp` exposes the notes to AI clients as a remote MCP server: stateless Streamable HTTP with bearer auth and 8 tools. See [packages/mcp/README.md](packages/mcp/README.md).
+
+## Deploying to Vercel
+
+`vercel.json` runs `bun run build:vercel`. That script ([scripts/build-vercel.ts](scripts/build-vercel.ts)) writes a Build Output API bundle with two parts:
+- the SPA, as static files;
+- a single bundled Node function. `/api/*` and `/mcp` route to it, and every other path falls back to `index.html`.
+
+The function uses libSQL's HTTP client, so production needs a Turso database. Set these on the Vercel project:
+
+```sh
+vercel env add TURSO_DATABASE_URL production   # libsql://<db>-<org>.turso.io
+vercel env add TURSO_AUTH_TOKEN production     # turso db tokens create <db>
+vercel env add MCP_AUTH_TOKEN production       # e.g. openssl rand -hex 32
+vercel deploy --prod
+```
+
+Migrations run on the first request after each cold start. They're idempotent, tracked with `PRAGMA user_version`.
 
 ## Layout
 

@@ -1,14 +1,17 @@
 import { createNotesClient, toExcerpt, type Note } from "@notes/shared";
 import { beforeEach, describe, expect, it } from "bun:test";
 import { createApp } from "../src/app";
-import { openDb } from "../src/db";
+import { createClient } from "@libsql/client";
+import { lazyMigrate, migrate } from "../src/db";
 import { createNotesRepo } from "../src/notes-repo";
 
 let api: ReturnType<typeof createNotesClient>;
 let app: ReturnType<typeof createApp>;
 
-beforeEach(() => {
-  app = createApp({ repo: createNotesRepo(openDb(":memory:")) });
+beforeEach(async () => {
+  const db = createClient({ url: ":memory:" });
+  await migrate(db);
+  app = createApp({ repo: createNotesRepo(db), mcpAuthToken: "test-token" });
   // Exercise the real shared client against the in-process app.
   api = createNotesClient({
     baseUrl: "http://test",
@@ -89,5 +92,60 @@ describe("toExcerpt", () => {
     expect(toExcerpt("milk\n\n<br />\n\n| A | B |\n| --- | :-: |\n| 1 | 2 |\n\n---\n\n100\\% \\*ok\\*")).toBe(
       "milk A B 1 2 100% ok",
     );
+  });
+});
+
+describe("mcp endpoint", () => {
+  const rpc = (body: unknown, token = "test-token") =>
+    app.request("/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+
+  it("rejects requests without the bearer token", async () => {
+    const res = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, "");
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toContain("Bearer");
+  });
+
+  it("creates a note through MCP that the REST API then serves", async () => {
+    const res = await rpc({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "create_note", arguments: { title: "From MCP", content: "# hi" } },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { result: { isError?: boolean; structuredContent: Note } };
+    expect(body.result.isError).toBeFalsy();
+    const created = body.result.structuredContent;
+    expect(await api.get(created.id)).toMatchObject({ title: "From MCP", content: "# hi" });
+
+    const list = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    const tools = ((await list.json()) as { result: { tools: { name: string }[] } }).result.tools;
+    expect(tools.map((t) => t.name)).toContain("search_notes");
+  });
+});
+
+describe("lazyMigrate", () => {
+  it("retries after a failure instead of caching the rejection", async () => {
+    const db = createClient({ url: ":memory:" });
+    let calls = 0;
+    const flaky = {
+      ...db,
+      execute: (...args: Parameters<typeof db.execute>) =>
+        ++calls === 1 ? Promise.reject(new Error("cold DB")) : db.execute(...args),
+      batch: db.batch.bind(db),
+    } as typeof db;
+    const ready = lazyMigrate(flaky);
+    await expect(ready()).rejects.toThrow("cold DB");
+    await ready();
+    await ready();
+    expect(calls).toBe(2);
   });
 });

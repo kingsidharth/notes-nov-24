@@ -1,6 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
+import { createMcpFetchHandler } from "@notes/mcp";
 import {
   API_PREFIX,
+  createNotesClient,
   createNoteInputSchema,
   listNotesQuerySchema,
   noteParamsSchema,
@@ -43,36 +45,67 @@ function notFound(c: Context) {
 export interface AppOptions {
   repo: NotesRepo;
   corsOrigin?: string | string[];
+  /** Bearer secret for the remote MCP endpoint at /mcp. Unset = open (warns). */
+  mcpAuthToken?: string;
+  /** Makes the DB ready (e.g. migrations); awaited before each request. Should memoize. */
+  ready?: () => Promise<unknown>;
 }
 
-export function createApp({ repo, corsOrigin = "*" }: AppOptions) {
+export const MCP_PATH = "/mcp";
+
+export function createApp({ repo, corsOrigin = "*", mcpAuthToken, ready }: AppOptions) {
   const api = new Hono()
     .get("/health", (c) => c.json({ ok: true }))
-    .get("/notes", validate("query", listNotesQuerySchema), (c) => {
+    .get("/notes", validate("query", listNotesQuerySchema), async (c) => {
       const { q } = c.req.valid("query");
-      return c.json({ notes: repo.list(q || undefined) } satisfies ListNotesResponse);
+      return c.json({ notes: await repo.list(q || undefined) } satisfies ListNotesResponse);
     })
-    .post("/notes", validate("json", createNoteInputSchema), (c) => {
-      const note = repo.create(c.req.valid("json"));
+    .post("/notes", validate("json", createNoteInputSchema), async (c) => {
+      const note = await repo.create(c.req.valid("json"));
       c.header("Location", `${API_PREFIX}/notes/${note.id}`);
       return c.json(note, 201);
     })
-    .get("/notes/:id", idParam, (c) => {
-      const note = repo.get(c.req.valid("param").id);
+    .get("/notes/:id", idParam, async (c) => {
+      const note = await repo.get(c.req.valid("param").id);
       return note ? c.json(note) : notFound(c);
     })
-    .patch("/notes/:id", idParam, validate("json", updateNoteInputSchema), (c) => {
-      const note = repo.update(c.req.valid("param").id, c.req.valid("json"));
+    .patch("/notes/:id", idParam, validate("json", updateNoteInputSchema), async (c) => {
+      const note = await repo.update(c.req.valid("param").id, c.req.valid("json"));
       return note ? c.json(note) : notFound(c);
     })
-    .delete("/notes/:id", idParam, (c) => {
-      return repo.remove(c.req.valid("param").id) ? c.body(null, 204) : notFound(c);
+    .delete("/notes/:id", idParam, async (c) => {
+      return (await repo.remove(c.req.valid("param").id)) ? c.body(null, 204) : notFound(c);
     });
 
   const app = new Hono();
+  if (ready) {
+    app.use("*", async (_c, next) => {
+      await ready();
+      await next();
+    });
+  }
   app.use(`${API_PREFIX}/*`, cors({ origin: corsOrigin }));
   app.use(`${API_PREFIX}/*`, bodyLimit({ maxSize: 1024 * 1024 }));
   app.route(API_PREFIX, api);
+
+  // Remote MCP server: its tools call this same REST API in-process through the
+  // shared typed client, so MCP and HTTP clients share one code path.
+  const mcp = createMcpFetchHandler({
+    client: createNotesClient({
+      baseUrl: "http://in-process",
+      fetch: (url, init) => Promise.resolve(app.request(url, init)),
+    }),
+    authToken: mcpAuthToken,
+  });
+  app.use(
+    MCP_PATH,
+    cors({
+      origin: corsOrigin,
+      allowHeaders: ["Authorization", "Content-Type", "Accept", "Mcp-Protocol-Version", "Mcp-Session-Id"],
+      exposeHeaders: ["Mcp-Session-Id", "WWW-Authenticate"],
+    }),
+  );
+  app.all(MCP_PATH, (c) => mcp(c.req.raw));
 
   app.notFound((c) =>
     c.json(errorBody("not_found", `No route for ${c.req.method} ${c.req.path}`), 404),
